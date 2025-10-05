@@ -1,138 +1,207 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.20;
 
-/// @title KipuBank - Un contrato bancario seguro para gestionar depósitos y retiros de ETH
-/// @notice Permite a los usuarios depositar y retirar ETH con un límite de retiro por transacción y un tope global de depósitos
+/**
+ * @title KipuBank
+ * @dev Este contrato simula un banco donde los usuarios pueden depositar
+ * y retirar Ether.
+ * Aplica límites de retiro por transacción y un límite global de depósito.
+ */
 contract KipuBank {
-    // === Variables de Estado ===
+    /*
+     *VARIABLES INMUTABLES Y CONSTANTES*
+     */
 
-    /// @notice Cantidad máxima de ETH que se puede retirar por transacción (inmutable)
+    /// @dev La cantidad máxima de Ether que se puede retirar en una sola transacción.
+    /// Es una variable inmutable, fijada en el constructor.
+    /// Se establece en 0.1 ETH.
     uint256 public immutable WITHDRAWAL_LIMIT;
 
-    /// @notice Cantidad máxima total de ETH que el contrato puede contener (inmutable)
-    uint256 public immutable BANK_CAP;
+    /// @dev El límite de depósito total que el contrato puede contener (Bank Cap).
+    /// Es una variable inmutable, fijada en el constructor.
+    uint256 public immutable bankCap;
 
-    /// @notice Mapeo de direcciones de usuarios a sus saldos en la bóveda personal
-    mapping(address => uint256) private userBalances;
+    /*
+* VARIABLES DE ALMACENAMIENTO*
+     */
 
-    /// @notice Cantidad total de ETH actualmente depositada en el contrato
+    /// @dev Dirección del propietario del contrato, que puede ser utilizada para funciones de administración (no requerida aquí, pero buena práctica).
+    address private immutable i_owner;
+
+    /// @dev El balance total de Ether depositado en el banco.
     uint256 public totalDeposited;
 
-    /// @notice Contador del número total de depósitos realizados
+    /// @dev Contador de la cantidad total de depósitos exitosos.
     uint256 public depositCount;
 
-    /// @notice Contador del número total de retiros realizados
+    /// @dev Contador de la cantidad total de retiros exitosos.
     uint256 public withdrawalCount;
 
-    // === Errores ===
+    /*
+     * MAPPING*
+     */
 
-    /// @notice Lanzado cuando el monto del depósito es cero
+    /// @dev Mapeo de la dirección del usuario a su balance personal de Ether.
+    mapping(address => uint256) private s_balances;
+
+    /*
+     *EVENTOS*
+     */
+
+    /// @dev Se emite cuando un depósito es exitoso.
+    event DepositSuccessful(address indexed user, uint256 amount, uint256 newBalance);
+
+    /// @dev Se emite cuando un retiro es exitoso.
+    event WithdrawalSuccessful(address indexed user, uint256 amount, uint256 newBalance);
+
+    /*
+    ERRORES PERSONALIZADOS
+     */
+
+    /// @dev Se revierte si el depósito excede el límite global del banco.
+    error CapExceeded(uint256 availableSpace, uint256 depositAttempt);
+
+    /// @dev Se revierte si el usuario intenta retirar más de lo que tiene.
+    error InsufficientBalance(uint256 requested, uint256 available);
+
+    /// @dev Se revierte si el retiro excede el límite de retiro por transacción.
+    error WithdrawalLimitExceeded(uint256 requested, uint256 limit);
+
+    /// @dev Se revierte si la transferencia nativa de Ether falla.
+    error TransferFailed();
+
+    /// @dev Se revierte si la cantidad de depósito es cero.
     error ZeroDeposit();
 
-    /// @notice Lanzado cuando el depósito excedería la capacidad del banco
-    error BankCapExceeded();
+    /*
+ MODIFICADORES
+     */
 
-    /// @notice Lanzado cuando el monto del retiro es cero
-    error ZeroWithdrawal();
-
-    /// @notice Lanzado cuando el monto del retiro excede el límite
-    error WithdrawalLimitExceeded();
-
-    /// @notice Lanzado cuando el usuario no tiene saldo suficiente
-    error InsufficientBalance();
-
-    // === Eventos ===
-
-    /// @notice Emitido cuando un usuario deposita ETH exitosamente
-    /// @param user La dirección del usuario que depositó
-    /// @param amount La cantidad de ETH depositada
-    event Deposited(address indexed user, uint256 amount);
-
-    /// @notice Emitido cuando un usuario retira ETH exitosamente
-    /// @param user La dirección del usuario que retiró
-    /// @param amount La cantidad de ETH retirada
-    event Withdrawn(address indexed user, uint256 amount);
-
-    // === Modificadores ===
-
-    /// @notice Asegura que el depósito no exceda la capacidad del banco
-    modifier checkBankCap(uint256 amount) {
-        if (totalDeposited + amount > BANK_CAP) {
-            revert BankCapExceeded();
+    /// @dev Verifica si el depósito propuesto no excede el límite total del banco (bankCap).
+    modifier notAboveCap(uint256 _amount) {
+        if (totalDeposited + _amount > bankCap) {
+            revert CapExceeded({
+                availableSpace: bankCap - totalDeposited,
+                depositAttempt: _amount
+            });
         }
         _;
     }
 
-    // === Constructor ===
+    /*
+     * CONSTRUCTOR   
+     */
 
-    /// @notice Inicializa el contrato con un límite de retiro y capacidad del banco
-    /// @param _withdrawalLimit La cantidad máxima de ETH por retiro
-    /// @param _bankCap La cantidad máxima total de ETH que el contrato puede contener
-    constructor(uint256 _withdrawalLimit, uint256 _bankCap) {
-        WITHDRAWAL_LIMIT = _withdrawalLimit;
-        BANK_CAP = _bankCap;
+    /**
+     * @dev Inicializa el contrato con el límite global de depósito.
+     * @param _bankCap El límite máximo de Ether que el contrato puede mantener.
+     */
+    constructor(uint256 _bankCap) {
+        i_owner = msg.sender;
+        bankCap = _bankCap;
+        // Establecer el límite de retiro en 0.1 Ether
+        WITHDRAWAL_LIMIT = 100_000_000_000_000_000; // 0.1 ETH en Wei
     }
 
-    // === Funciones Externas ===
+    /*
+ FUNCIONES EXTERNALES 
+     */
 
-    /// @notice Permite a un usuario depositar ETH en su bóveda personal
-    /// @dev Actualiza el saldo del usuario y el total depositado, emite el evento Deposited
-    function deposit() external payable checkBankCap(msg.value) {
+    /**
+     * @notice Permite a un usuario depositar Ether en su bóveda personal.
+     * @dev Es una función `external` y `payable`.
+     * Aplica el modificador `notAboveCap` y sigue el patrón Checks-Effects-Interactions.
+     */
+    function deposit() external payable notAboveCap(msg.value) {
+        // --- Checks ---
         if (msg.value == 0) {
             revert ZeroDeposit();
         }
 
-        // Patrón checks-effects-interactions
-        userBalances[msg.sender] += msg.value;
+        // --- Effects ---
+        // 1. Actualiza el balance del usuario
+        s_balances[msg.sender] += msg.value;
+        // 2. Actualiza el balance total del banco
         totalDeposited += msg.value;
+        // 3. Incrementa el contador de depósitos
         depositCount++;
 
-        emit Deposited(msg.sender, msg.value);
+        // --- Interactions / Events ---
+        emit DepositSuccessful(msg.sender, msg.value, s_balances[msg.sender]);
     }
 
-    /// @notice Permite a un usuario retirar ETH de su bóveda personal
-    /// @param amount La cantidad de ETH a retirar
-    /// @dev Asegura que el retiro esté dentro de los límites y que el usuario tenga saldo suficiente, emite el evento Withdrawn
-    function withdraw(uint256 amount) external {
-        if (amount == 0) {
-            revert ZeroWithdrawal();
+    /**
+     * @notice Permite a un usuario retirar Ether de su bóveda.
+     * @dev Es una función `external`.
+     * Aplica el límite de retiro por transacción y maneja la transferencia de forma segura.
+     * @param _amount La cantidad de Ether a retirar.
+     */
+    function withdraw(uint256 _amount) external {
+        // --- Checks ---
+        // 1. Verificar que la cantidad no exceda el límite por transacción
+        if (_amount > WITHDRAWAL_LIMIT) {
+            revert WithdrawalLimitExceeded({
+                requested: _amount,
+                limit: WITHDRAWAL_LIMIT
+            });
         }
-        if (amount > WITHDRAWAL_LIMIT) {
-            revert WithdrawalLimitExceeded();
-        }
-        if (userBalances[msg.sender] < amount) {
-            revert InsufficientBalance();
+        // 2. Verificar que el usuario tenga fondos suficientes
+        if (_amount > s_balances[msg.sender]) {
+            revert InsufficientBalance({
+                requested: _amount,
+                available: s_balances[msg.sender]
+            });
         }
 
-        // Patrón checks-effects-interactions
-        userBalances[msg.sender] -= amount;
-        totalDeposited -= amount;
+        // --- Effects ---
+        // 1. Reduce el balance del usuario
+        s_balances[msg.sender] -= _amount;
+        // 2. Reduce el balance total del banco
+        totalDeposited -= _amount;
+        // 3. Incrementa el contador de retiros
         withdrawalCount++;
 
-        emit Withdrawn(msg.sender, amount);
+        // --- Interactions / Events ---
+        // 4. Envía el Ether al usuario (Interacción)
+        _safeTransferEther(msg.sender, _amount);
+        // 5. Emite el evento
+        emit WithdrawalSuccessful(msg.sender, _amount, s_balances[msg.sender]);
+    }
 
-        // Transferencia segura de ETH
-        (bool success, ) = msg.sender.call{value: amount}("");
+    /**
+     * @notice Devuelve el balance de Ether de un usuario.
+     * @dev Es una función `external view` que retorna el saldo personal.
+     * @param _user La dirección del usuario cuyo balance se desea consultar.
+     * @return El balance de Ether del usuario en Wei.
+     */
+    function getBalance(address _user) external view returns (uint256) {
+        return _getPrivateBalance(_user);
+    }
+
+    /*
+     * 
+     *FUNCIONES PRIVADAS 
+     */
+
+    /**
+     * @dev Función privada para obtener el balance de un usuario.
+     * Se utiliza internamente, por ejemplo, en `getBalance`.
+     * @param _user La dirección del usuario.
+     * @return El balance de Ether del usuario en Wei.
+     */
+    function _getPrivateBalance(address _user) private view returns (uint256) {
+        return s_balances[_user];
+    }
+
+    /**
+   * @param _to La dirección a la que se enviará el Ether.
+     * @param _amount La cantidad de Ether a enviar en Wei.
+     */
+    function _safeTransferEther(address _to, uint256 _amount) private {
+        (bool success, ) = payable(_to).call{value: _amount}("");
         if (!success) {
-            revert("Transfer failed");
+            // Si la transferencia falla, revertir y usar el error personalizado
+            revert TransferFailed();
         }
     }
-
-    // === Funciones de Vista ===
-
-    /// @notice Retorna el saldo de la bóveda personal de un usuario
-    /// @param user La dirección del usuario a consultar
-    /// @return El saldo actual del usuario en wei
-    function getBalance(address user) external view returns (uint256) {
-        return userBalances[user];
-    }
-
-    // === Funciones Privadas ===
-
-    /// @notice Función interna para validar el estado del contrato (ejemplo para requisito de función privada)
-    /// @dev Actualmente es un placeholder para demostrar una función privada
-    function _validateState() private view {
-        // Placeholder para lógica de validación interna
-    }
 }
-
