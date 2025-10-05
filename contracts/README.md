@@ -22,7 +22,6 @@ KipuBank es un contrato inteligente en Solidity que permite a los usuarios depos
 1. Usa Remix (remix.ethereum.org)
 2. En Remix:
    - Crea nuevo archivo con el código de KipuBank.sol.
-   - Compila con Solidity ^0.8.26.
    - En "Deploy & Run", ingresa parámetros del constructor 1 ETH para límite de retiro: 1000000000000000000, 100 ETH para bankCap.
    - Despliega en una testnet como Sepolia
 3. Verifica en explorer como sepolia.etherscan.io.
