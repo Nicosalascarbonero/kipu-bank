@@ -1,6 +1,6 @@
 # KipuBank Smart Contract
 
-## Descripción
+# Descripción
 KipuBank es un contrato inteligente en Solidity que permite a los usuarios depositar y retirar ETH en bóvedas personales, con un límite fijo por retiro y un tope global de depósitos.
 
 ## Estructura del Contrato
