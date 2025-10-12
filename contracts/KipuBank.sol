@@ -25,9 +25,6 @@ contract KipuBank {
 * VARIABLES DE ALMACENAMIENTO*
      */
 
-    /// @dev Dirección del propietario del contrato, que puede ser utilizada para funciones de administración (no requerida aquí, pero buena práctica).
-    address private immutable i_owner;
-
     /// @dev El balance total de Ether depositado en el banco.
     uint256 public totalDeposited;
 
@@ -97,7 +94,6 @@ contract KipuBank {
      * @param _bankCap El límite máximo de Ether que el contrato puede mantener.
      */
     constructor(uint256 _bankCap) {
-        i_owner = msg.sender;
         bankCap = _bankCap;
         // Establecer el límite de retiro en 0.1 Ether
         WITHDRAWAL_LIMIT = 100_000_000_000_000_000; // 0.1 ETH en Wei
